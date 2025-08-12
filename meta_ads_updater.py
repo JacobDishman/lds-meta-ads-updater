@@ -1,30 +1,30 @@
 #!/usr/bin/env python3
 """
-Meta Ads Manager account name updater using Facebook Marketing API.
-Requires Facebook Marketing API setup and access tokens.
+Meta Ads Manager account name updater using HTTP requests.
+Requires Facebook Marketing API access token.
 """
 
-from facebook_business.api import FacebookAdsApi
-from facebook_business.adobjects.adaccount import AdAccount
-from facebook_business.exceptions import FacebookRequestError
+import requests
 import json
 import time
 from typing import List, Dict
 from update_account_names import update_account_name
 
 class MetaAdsUpdater:
-    def __init__(self, access_token: str, app_id: str, app_secret: str):
+    def __init__(self, access_token: str):
         """
         Initialize Meta Ads API connection.
         
         Args:
             access_token: Facebook Marketing API access token
-            app_id: Facebook app ID
-            app_secret: Facebook app secret
         """
         self.access_token = access_token
-        FacebookAdsApi.init(app_id, app_secret, access_token)
-        self.api = FacebookAdsApi.get_default_api()
+        self.base_url = "https://graph.facebook.com/v18.0"
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Authorization': f'Bearer {access_token}',
+            'Content-Type': 'application/json'
+        })
     
     def get_all_ad_accounts(self) -> List[Dict]:
         """
@@ -34,15 +34,19 @@ class MetaAdsUpdater:
             List of ad account dictionaries with id and name
         """
         try:
-            # Get accounts accessible by the current user
-            me = self.api.get_default_api().call(
-                'GET',
-                '/me/adaccounts',
-                {'fields': 'id,name,account_status'}
-            )
+            url = f"{self.base_url}/me/adaccounts"
+            params = {
+                'fields': 'id,name,account_status',
+                'access_token': self.access_token
+            }
             
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
             accounts = []
-            for account_data in me['data']:
+            
+            for account_data in data.get('data', []):
                 if account_data.get('account_status') == 1:  # Active accounts only
                     accounts.append({
                         'id': account_data['id'],
@@ -51,7 +55,7 @@ class MetaAdsUpdater:
             
             return accounts
             
-        except FacebookRequestError as e:
+        except requests.exceptions.RequestException as e:
             print(f"Error retrieving ad accounts: {e}")
             return []
     
@@ -67,11 +71,18 @@ class MetaAdsUpdater:
             True if successful, False otherwise
         """
         try:
-            account = AdAccount(account_id)
-            account.update(params={'name': new_name})
+            url = f"{self.base_url}/{account_id}"
+            data = {
+                'name': new_name,
+                'access_token': self.access_token
+            }
+            
+            response = self.session.post(url, json=data)
+            response.raise_for_status()
+            
             return True
             
-        except FacebookRequestError as e:
+        except requests.exceptions.RequestException as e:
             print(f"Error updating account {account_id}: {e}")
             return False
     
@@ -136,21 +147,18 @@ def main():
     print()
     print("This script requires:")
     print("1. Facebook Marketing API access token")
-    print("2. Facebook app ID and app secret")
-    print("3. Proper permissions on the ad accounts")
+    print("2. Proper permissions on the ad accounts")
     print()
     
     # Configuration - replace with your actual values
     ACCESS_TOKEN = "YOUR_ACCESS_TOKEN_HERE"
-    APP_ID = "YOUR_APP_ID_HERE" 
-    APP_SECRET = "YOUR_APP_SECRET_HERE"
     
     if ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
-        print("Please configure your Facebook Marketing API credentials first!")
-        print("Update the ACCESS_TOKEN, APP_ID, and APP_SECRET variables.")
+        print("Please configure your Facebook Marketing API access token first!")
+        print("Update the ACCESS_TOKEN variable.")
         return
     
-    updater = MetaAdsUpdater(ACCESS_TOKEN, APP_ID, APP_SECRET)
+    updater = MetaAdsUpdater(ACCESS_TOKEN)
     
     # First run as dry run to see what would change
     print("Running DRY RUN - no changes will be made:")
